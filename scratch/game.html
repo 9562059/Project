@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ski Free</title>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #d1e7ff; /* Light blue background */
+            margin: 0;
+            font-family: 'Press Start 2P', cursive; /* Arcade font */
+            overflow: hidden; /* Prevent scrollbars */
+        }
+        #gameContainer {
+            position: relative; /* Needed for absolute positioning of messages */
+            border: 4px solid #333; /* Darker border */
+            border-radius: 10px; /* Rounded corners */
+            overflow: hidden; /* Keep elements inside */
+            background-color: #fff; /* White snow background */
+        }
+        canvas {
+            display: block; /* Remove extra space below canvas */
+            background-color: #ffffff; /* White snow */
+        }
+        #messageBox {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 25px 45px;
+            border-radius: 10px;
+            text-align: center;
+            font-size: 1.6em;
+            display: none; /* Hidden by default */
+            z-index: 10;
+            border: 2px solid #fff;
+        }
+        #scoreBoard {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            color: #333; /* Dark text for contrast on white */
+            font-size: 1em;
+            background-color: rgba(255, 255, 255, 0.6); /* Semi-transparent white */
+            padding: 8px 12px;
+            border-radius: 5px;
+        }
+         #controlsInfo {
+            position: absolute;
+            bottom: 15px;
+            right: 15px;
+            color: #555;
+            font-size: 0.8em;
+            background-color: rgba(255, 255, 255, 0.6);
+            padding: 8px 12px;
+            border-radius: 5px;
+        }
+        /* Style the restart button */
+        #restartButton {
+             margin-top: 20px;
+             padding: 10px 20px;
+             background-color: #3498db; /* Blue button */
+             color: white;
+             border: none;
+             border-radius: 8px;
+             box-shadow: 0 4px #2980b9; /* Button shadow for depth */
+             cursor: pointer;
+             font-family: 'Press Start 2P', cursive; /* Ensure button uses game font */
+             transition: all 0.1s ease;
+        }
+        #restartButton:active {
+            box-shadow: 0 2px #2980b9;
+            transform: translateY(2px);
+        }
+         #restartButton:hover {
+            background-color: #4aa3df;
+         }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas" width="600" height="700"></canvas>
+        <div id="scoreBoard">Score: 0</div>
+        <div id="controlsInfo">Arrows: Move</div>
+        <div id="messageBox">
+            <div id="messageText">Game Over!</div>
+            <button id="restartButton">Restart</button>
+        </div>
+    </div>
+
+    <script>
+        // --- Game Setup ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const messageBox = document.getElementById('messageBox');
+        const messageText = document.getElementById('messageText');
+        const restartButton = document.getElementById('restartButton');
+        const scoreBoard = document.getElementById('scoreBoard');
+
+        // Game constants
+        const SKIER_SIZE = 30;
+        const TREE_SIZE = 35;
+        const SKIER_SPEED_X = 6; // Horizontal speed when moving
+        const INITIAL_GAME_SPEED = 2; // Vertical speed of obstacles
+        const SPEED_INCREASE_INTERVAL = 500; // Increase speed every 500 score points
+        const SPEED_INCREASE_AMOUNT = 0.2;
+        const TREE_SPAWN_RATE = 0.985; // Chance to spawn a tree each frame (lower = more trees)
+        const SKIER_COLOR = '#e74c3c'; // Red color for the skier
+
+        // Game state variables
+        let skier;
+        let trees = [];
+        let score = 0;
+        let gameOver = false;
+        let animationFrameId;
+        let keys = { ArrowLeft: false, ArrowRight: false };
+        let currentSpeed = INITIAL_GAME_SPEED; // Current vertical speed
+
+        // --- Game Objects ---
+
+        // Skier object
+        function createSkier() {
+            return {
+                x: canvas.width / 2 - SKIER_SIZE / 2,
+                y: canvas.height - SKIER_SIZE * 3, // Start lower on the screen
+                width: SKIER_SIZE,
+                height: SKIER_SIZE,
+                color: SKIER_COLOR // Assign the color here
+                // emoji: '⛷️' // Emoji removed
+            };
+        }
+
+        // Tree object
+        function createTree() {
+            const x = Math.random() * (canvas.width - TREE_SIZE); // Random horizontal position
+            const y = -TREE_SIZE; // Start above the canvas
+            return {
+                x: x,
+                y: y,
+                width: TREE_SIZE,
+                height: TREE_SIZE,
+                emoji: '🌲' // Tree emoji (keeping for trees)
+            };
+        }
+
+        // --- Drawing Functions ---
+
+        // Function to draw basic rectangles
+        function drawRect(x, y, width, height, color) {
+            ctx.fillStyle = color;
+            ctx.fillRect(x, y, width, height);
+        }
+
+        // Function to draw emojis (used for trees)
+        function drawEmoji(emoji, x, y, size) {
+             ctx.font = `${size}px Arial`; // Use a font that supports the emoji
+             ctx.textAlign = 'center';
+             ctx.textBaseline = 'middle';
+             // Draw slightly offset for better centering
+             ctx.fillText(emoji, x + size / 2, y + size / 2);
+        }
+
+        // Updated: Draw skier as a rectangle
+        function drawSkier() {
+            drawRect(skier.x, skier.y, skier.width, skier.height, skier.color);
+        }
+
+        // Draw tree using emoji (can be changed to rect if needed)
+        function drawTree(tree) {
+             drawEmoji(tree.emoji, tree.x, tree.y, tree.width);
+             // Alternative: Draw tree as a green rectangle
+             // drawRect(tree.x, tree.y, tree.width, tree.height, '#27ae60');
+        }
+
+        function drawBackground() {
+            // Simple white background
+             ctx.fillStyle = "#ffffff";
+             ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+
+        // --- Game Logic ---
+
+        function moveSkier() {
+            if (keys.ArrowLeft && skier.x > 0) {
+                skier.x -= SKIER_SPEED_X;
+            }
+            if (keys.ArrowRight && skier.x < canvas.width - skier.width) {
+                skier.x += SKIER_SPEED_X;
+            }
+        }
+
+        function moveTrees() {
+            trees.forEach(tree => {
+                tree.y += currentSpeed; // Trees move down the screen
+            });
+
+            // Remove trees that have gone off the bottom edge
+            trees = trees.filter(tree => tree.y < canvas.height);
+        }
+
+        function spawnTree() {
+            // Randomly decide whether to spawn a tree in this frame
+            if (Math.random() > TREE_SPAWN_RATE) {
+                trees.push(createTree());
+            }
+        }
+
+        function checkCollision() {
+            for (const tree of trees) {
+                // Basic AABB collision detection
+                if (
+                    skier.x < tree.x + tree.width &&
+                    skier.x + skier.width > tree.x &&
+                    skier.y < tree.y + tree.height &&
+                    skier.y + skier.height > tree.y
+                ) {
+                    return true; // Collision detected
+                }
+            }
+            return false; // No collision
+        }
+
+        function updateScore() {
+            score++; // Increment score each frame
+            scoreBoard.textContent = `Score: ${score}`;
+
+             // Increase speed based on score
+             if (score % SPEED_INCREASE_INTERVAL === 0 && score > 0) {
+                 currentSpeed += SPEED_INCREASE_AMOUNT;
+                 // console.log("Speed Increased:", currentSpeed); // For debugging
+             }
+        }
+
+        function showGameOver(message = "CRASH!") {
+            gameOver = true;
+            messageText.textContent = message;
+            messageBox.style.display = 'flex'; // Show the message box
+            cancelAnimationFrame(animationFrameId); // Stop the game loop
+        }
+
+        function resetGame() {
+            gameOver = false;
+            score = 0;
+            currentSpeed = INITIAL_GAME_SPEED; // Reset speed
+            skier = createSkier();
+            trees = [];
+            keys = { ArrowLeft: false, ArrowRight: false }; // Reset keys
+            messageBox.style.display = 'none'; // Hide message box
+            updateScore(); // Reset score display
+            gameLoop(); // Start the game loop again
+        }
+
+        // --- Game Loop ---
+
+        function gameLoop() {
+            if (gameOver) return; // Stop loop if game is over
+
+            // 1. Clear canvas
+            drawBackground();
+
+            // 2. Spawn new trees
+            spawnTree();
+
+            // 3. Move Skier based on input
+            moveSkier();
+
+            // 4. Move Trees
+            moveTrees();
+
+            // 5. Draw elements
+            trees.forEach(drawTree);
+            drawSkier(); // Draw skier last so it's on top
+
+            // 6. Check for Collision
+            if (checkCollision()) {
+                showGameOver("CRASH!");
+                return; // Exit loop immediately on collision
+            }
+
+            // 7. Update Score
+            updateScore();
+
+            // 8. Request next frame
+            animationFrameId = requestAnimationFrame(gameLoop);
+        }
+
+        // --- Event Listeners ---
+
+        function handleKeyDown(e) {
+            if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                 e.preventDefault(); // Prevent window scrolling
+                 keys[e.key] = true;
+            }
+        }
+
+        function handleKeyUp(e) {
+             if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                 e.preventDefault();
+                 keys[e.key] = false;
+             }
+        }
+
+        // --- Initialization ---
+
+        window.addEventListener('keydown', handleKeyDown);
+        window.addEventListener('keyup', handleKeyUp);
+        restartButton.addEventListener('click', resetGame);
+
+        // Start the game
+        resetGame(); // Initialize and start the first game
+
+    </script>
+</body>
+</html>
+
